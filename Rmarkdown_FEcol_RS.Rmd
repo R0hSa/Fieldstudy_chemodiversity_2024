@@ -1,0 +1,396 @@
+---
+title: "RMarkdown_Sasidharan_et_al_2024_FEcol"
+author: "Rohit Sasidharan"
+date: "20-09-2024"
+output:
+  word_document: default
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+
+#### IMPORTING THE DATASETS
+#Requires Rtools and devtools compatible with current versions of R and RStudio
+
+#Installation
+# install.packages("BiodiversityR")
+# install.packages("ggplot2")
+# install.packages("tidyverse")
+# install.packages("reshape2")
+# install.packages("lme4")
+# install.packages("glmmTMB")
+# install.packages("DHARMa")
+# install.packages("emmeans")
+# install.packages("vegan")
+
+#### Packages needed
+library(readxl) # read in excel file with function
+# library(BiodiversityR) # can be used in place of vegan; also loads vegan
+library(ggplot2) # for plots
+library(readxl) # for reading excel files
+library(readr) # read data in a tidy manner
+library(here) # never write paths again
+library(dplyr) # allows usage of %>% from magrittr and data wrangling
+library(tidyr) # data wrangling
+library(tidyverse) #text changes
+library(reshape2) # for casting, melting, reshaping the data
+library(lme4) #fitting LMMs
+library(glmmTMB) #zero inflation models
+library(DHARMa) #model checking
+library(emmeans) #least sqare means
+library(car) #Anova cmd 
+library(stats) # various stat tests
+library(vegan) # various stat tests
+
+
+#pairwiseAdonis
+library(devtools) # for installing pairwiseadonis
+devtools::install("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+library(pairwiseAdonis) # for performing pairwise versions of adonis
+#### datasheet 1: Terpenoids NMDS, Mantel and Varpart
+
+
+data_1<- read_excel("SI_dataset.xlsx", 
+    sheet = "Terpenoid_composition", col_types = c("text", 
+        "text", "text", "text", "text", "text", 
+        "skip", "skip", "numeric", 
+        "skip"))
+
+
+#melt the datasheet
+md<-melt(data_1, id=c("Sample_Name","Plant","Genotype","Part","Chemotype","Compound"))
+str(md) # view structure
+## The relative area becomes the value
+
+# transpose: cast the melted data
+# cast(data, formula, function) 
+#### IMPORTANT:  adds an extra number column : REMOVE THIS both in the next steps and the final version.
+
+transdat<-dcast(md, Sample_Name+Plant+Chemotype+Genotype+Part~Compound,mean)
+
+##Filtering the data files
+data1f<-filter(transdat, Part %in% "Leaf")
+data1l<-filter(transdat, Part %in% "Flower_head")
+
+#### datasheet 2: Flower visitors
+data_2 <- read_excel("SI_dataset.xlsx", 
+    sheet = "Flower visitors_plantwise", 
+    col_types = c("numeric", "numeric", "numeric", 
+        "text", "text", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "text", "text", "text", "text", "text", 
+        "text", "text", "text", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric"))
+
+data_2_2021<-filter(data_2, Year %in% "2021")
+data_2_2022<-filter(data_2, Year %in% "2022")
+
+#### datasheet 3: Diversity counts
+data_3 <- read_excel("SI_dataset.xlsx", 
+    sheet = "Diversity_counts_plotwise", 
+    col_types = c("numeric", "numeric", "numeric", 
+        "text", "text", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "text", "text", "text", "text", "text", 
+        "text", "text", "text", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric"))
+
+#### datasheet 4: Germination
+data_4 <- read_excel("SI_dataset.xlsx", 
+    sheet = "Germination_expt", col_types = c("text", 
+        "text", "text", "text", "numeric", 
+        "text", "text", "text", "text", "text", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric", "numeric", 
+        "numeric", "numeric"))
+```
+
+## R Markdown for Field Data
+
+All data shown here is made avilable on Github: <https://github.com/R0hSa/FieldStudy_chemodiversity_2023>.
+Rtools is required for the current version of R to run this script. 
+
+## **1. Analyses of Terpenoid Profiles** : 
+
+**NMDS of leaf and flower terpenoids**
+The data provided here are transformed using Wisconsin square-root transformation. 
+```{r terpenoids leaf}
+
+
+#make community matrix - extract columns with abundance information
+
+#Wisconsin square-root transformation
+data_ws <- wisconsin(sqrt(transdat[,6:ncol(transdat)]))
+data_ws_f<-wisconsin(sqrt(data1l[,6:ncol(data1l)]))
+data_ws_l<-wisconsin(sqrt(data1f[,6:ncol(data1f)]))
+
+#make community matrix
+m_com = as.matrix(data_ws)
+leafy_numbers<-as.matrix(data_ws_f)
+flowery_numbers<-as.matrix(data_ws_l)
+
+
+### NMDS
+
+set.seed(500)
+nmds = metaMDS(m_com, distance = "kulczynski")
+nmds
+
+plot(nmds)
+
+#extract NMDS scores (x and y coordinates)
+
+# use 
+#data.scores = as.data.frame(scores(nmds)) #for R versions
+#or change it to 
+data.scores = as.data.frame(scores(nmds)$sites) #for R versions
+
+#add columns to data frame 
+data.scores$Sample_Name = transdat$Sample_Name
+data.scores$Chemotype = transdat$Chemotype
+data.scores$Part = transdat$Part
+
+#PLOT
+
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) + 
+  geom_point(size = 3, aes(colour = Chemotype,shape=Part))+ 
+ #geom_text(aes(x=NMDS1,y=NMDS2,label=Sample_Name), size=3, alpha=1)+  ### to view sample labels
+  theme(axis.text.y = element_text(colour = "black", size = 18, face = "bold"), 
+        axis.text.x = element_text(colour = "black", face = "bold", size = 18), 
+        legend.text = element_text(size = 19, face ="bold", colour ="black"), 
+        legend.position = "right", axis.title.y = element_text(face = "bold", size = 16), 
+        axis.title.x = element_text(face = "bold", size = 18, colour = "black"), 
+        legend.title = element_text(size = 18, colour = "black", face = "bold"), 
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, linewidth  = 1.2),
+        legend.key=element_blank()) + 
+  labs(x = "NMDS1", colour = "Chemotype", y = "NMDS2",shape="Part")  + 
+  scale_colour_manual(labels=c("Keto","BThu","AThu","Aacet","Myrox"),values = c("#FFC466","#77A8F5","#F9623E","#6ECFBD","#B481FF")) 
+
+xx
+
+
+```
+**PERMANOVA**
+The data provided here are transformed using Wiscon square-root transformation. 
+```{r terpenoids PERMANOVA}
+############ 
+perm_result_f<-adonis2(flowery_numbers~Chemotype,permutations = 1000, method="kulczynski", data=data1f)
+perm_result_f
+
+perm_result_l<-adonis2(leafy_numbers~Chemotype,permutations = 1000, method="kulczynski", data=data1l)
+perm_result_l
+
+```
+**pairwise PERMANOVA**
+Ensure that the pairwiseadonis package is installed from https://github.com/pmartinezarbizu/pairwiseAdonis
+```{r terpenoids pairwise PERMANOVA}
+############ 
+pairwise.adonis(
+  dist.flower,
+  flowery$Chemotype,
+  sim.function = "vegdist",
+  p.adjust.m = "BH",
+  reduce = NULL,
+  perm = 999
+)
+
+pairwise.adonis(
+  dist.leaf,
+  leafy$Chemotype,
+  sim.function = "vegdist",
+  p.adjust.m = "BH",
+  reduce = NULL,
+  perm = 999
+)
+
+```
+
+**Mantel Test**
+```{r terpenoids mantel}
+
+#melt the data
+md<-melt(data_1, id=c("Sample_Name","Plant","Genotype","Part","Chemotype","Compound","Area","Percent_Area"))
+
+
+#transpose: cast the melted data
+transdat3<-dcast(md, Sample_Name+Plant+Chemotype+Genotype+Part~Compound,mean)
+
+
+#filter into leaf or flowerhead datasets
+leafy<-filter(transdat3, Part %in% "Leaf")
+leafy_numbers<-leafy[,6:ncol(leafy)]
+
+flowery<-filter(transdat3, Part %in% "Flower_head")
+flowery_numbers<-flowery[,6:ncol(flowery)]
+
+#distance matrix: kulczynski
+dist.leaf = vegdist(leafy_numbers, method = "kulczynski")
+dist.flower = vegdist(flowery_numbers, method = "kulczynski")
+
+#mantel
+leaf_flower = mantel(dist.leaf, dist.flower, method = "spearman", permutations = 9999, na.rm = TRUE)
+leaf_flower
+
+```
+
+**Variance partitioning**
+```{r terpenoids varpart}
+
+com2 = transdat3[,6:ncol(transdat3)]
+m_com2 = as.matrix(com2)
+
+# Two explanatory matrices -- Hellinger-transform Y
+# Formula shortcut "~ ." means: use all variables in 'data'.
+mod <- varpart(m_com2, ~Chemotype, ~Part, data=transdat3, transfo="hel")
+mod
+## e.g., http://127.0.0.1:10221/graphics/plot_zoom_png?width=1142&height=616
+
+#If you want to plot it
+# plot(mod, Xnames = c('Chemotype', 'Organ'), bg = c('deeppink3','seagreen3'), alpha = 80, # colour the circles
+#        digits = 2, # only show 2 digits
+#        cex = 1.5)
+```
+
+**ANOVA on variances**
+```{r terpenoids varpart anova}
+
+## rda on all fractions before a permutational anova can be performed
+## a = Chemotype only, c = Part (organ) only, b = overlap between chemotype and part
+
+# fraction [a]:
+rda.Chemotype.Part <- rda (m_com2 ~ Chemotype + Condition (Part), data = transdat3)
+# fraction [c]:
+rda.Part.Chemotype <- rda (m_com2 ~ Part + Condition (Chemotype), data = transdat3)
+
+# fractions [a+b+c]:
+rda.all <- rda (m_com2 ~ Chemotype + Part, data = transdat3)
+# fractions [a+b]:
+rda.Chemotype <- rda (m_com2 ~ Chemotype, data = transdat3)
+# fractions [b+c]:
+rda.Part <- rda (m_com2 ~ Part, data = transdat3)
+
+
+## The global model (fractions [a+b+c]):
+anova (rda.all)
+
+## Simple (marginal) effect of Chemotype (fraction [a+b]):
+anova (rda.Chemotype)
+
+## Simple (marginal) effect of Part (fraction [b+c]):
+anova (rda.Part)
+
+## Conditional (partial) effect of Chemotype (fraction [a]):
+anova (rda.Chemotype.Part)
+
+## Conditional (partial) effect of Part (fraction [c]):
+anova (rda.Part.Chemotype)
+
+#########
+
+```
+
+## **2. Flower Visitor Observations** : 
+**Pollinator visits**
+```{r pollinators}
+modelp<-glmmTMB(Pollinator_counts~Plot_type*Chemotype+Day+Wind_speed+Year+Available_yellow_FHs+(1|Block)+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID)+Temperature+Humidity,ziformula=~Day,family="nbinom1",data=data_2)
+
+summary(modelp)
+
+Anova(modelp,type="III",test="Chisq") 
+
+```
+**Florivore visits**
+```{r florivores}
+modelf<-glmmTMB(Florivore_counts~Chemotype*Plot_type+Day+Year+Available_FHs+(1|Block)+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID)+Temperature+Humidity,ziformula=~Available_FHs,family="poisson",data=data_2)
+
+summary(modelf)
+
+Anova(modelf,type="III",test="Chisq") 
+
+## for chemotype, pairwise comparisons
+emmf <- lsmeans(modelf, ~ Chemotype) ## or emmeans
+emmf
+pairwise_comparisons_f <- pairs(emmf)
+summary(pairwise_comparisons_f)
+```
+**Pollinator-florivore correlations (yearwise)**
+
+```{r pollinator florivore corr}
+#2021
+
+modelpf_2021<-glmmTMB(Pollinator_counts~Florivore_counts+(1|Chemotype)+Plot_type+Day+Wind_speed+Available_yellow_FHs+(1|Block)+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID)+Temperature+Humidity,ziformula=~Available_yellow_FHs,family="nbinom1",data=data_2_2021)
+
+summary(modelpf_2021)
+
+Anova(modelpf_2021,type="III",test="Chisq") 
+
+#2022
+
+modelpf_2022<-glmmTMB(Pollinator_counts~Florivore_counts+Available_yellow_FHs+Plot_type+(1|Chemotype)+Humidity+Temperature+Wind_speed+(1|Block)+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID)+Day,ziformula=~Available_yellow_FHs,family="poisson",data=data_2_2022)
+
+summary(modelpf_2022)
+
+Anova(modelpf_2022,type="III",test="Chisq") 
+```
+**Plot level species diversity (richness)**
+```{r richness}
+
+#Pollinator species richness
+modelpr<-lmer(Pollinator_richness~Plot_type+Day+Wind_speed+Year+Available_yellow_FHs+(1|Block)+(1|Block:BlockPlot)+Temperature+Humidity,data=data_3)
+
+summary(modelpr)
+
+Anova(modelpr,type="III",test="Chisq") 
+
+#Florivore species richness
+modelfr<-glmer(Florivore_richness~Plot_type+Day+Wind_speed+Year+Available_FHs+(1|Block)+(1|Block:BlockPlot)+Temperature+Humidity,family="poisson",data=data_3)
+
+
+summary(modelfr)
+
+Anova(modelfr,type="III",test="Chisq") 
+```
+
+## **3. Germination Data** : 
+**Chemotype and Plot type effects**
+```{r germination}
+modelg<-lmer(Percentage_germination~Chemotype*Plot_type+Replicate+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID),data=data_4) 
+
+summary(modelg)
+
+Anova(modelg,type="III",test="Chisq") 
+
+#### for chemotype, pairwise comparisons
+emm <- lsmeans(modelg, ~ Chemotype) ## or emmeans
+emm
+pairwise_comparisons <- pairs(emm)
+summary(pairwise_comparisons)
+
+```
+**Correlations with pollinators or florivores**
+```{r germination corr}
+# Germination- Pollinator correlations
+modelgp<-lmer(Percentage_germination~Pollinator_counts+Available_yellow_FHs+(1|Chemotype)+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID),data=data_4)
+
+
+summary(modelgp)
+
+Anova(modelgp,type="III",test="Chisq") 
+
+# Germination- florivore correlations
+modelgf<-lmer(Percentage_germination~Florivore_counts+Plot_type+Available_FHs+(1|Chemotype)+(1|Block:BlockPlot)+(1|Genotype)+(1|Genotype:Plant_ID),data=data_4)
+
+summary(modelgf)
+
+Anova(modelgf,type="III",test="Chisq") 
+
+```
+## **---------------------------------------THE END----------------------------------------------** 
